@@ -3,10 +3,35 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-struct Cli {
+#[derive(Debug)]
+struct Arguments {
     path: PathBuf,
 }
 
+fn print_usage() {
+    eprintln!(
+        "{} - {}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_DESCRIPTION")
+    );
+    eprintln!("Usage: {} <file>", env!("CARGO_PKG_NAME"));
+}
+
+fn parse_args() -> Arguments {
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if args.len() != 1 {
+        print_usage();
+        eprintln!(
+            "Error: wrong number of arguments: expected 1, got {}.",
+            args.len()
+        );
+        std::process::exit(1);
+    }
+    Arguments {
+        path: PathBuf::from(&args[0]),
+    }
+}
 struct WordRecord {
     word: String,
     pinyin: String,
@@ -45,10 +70,10 @@ fn parse_scel_file(fp: &PathBuf) -> Scel {
     );
 
     let scel_id = read_string(&buffer, 0x001C, 0x011B);
-    let scel_length = u16::from_le_bytes([buffer[0x124], buffer[0x125]]);
-    let name = read_string(&buffer, 0x130, 0x338);
-    let category = read_string(&buffer, 0x338, 0x540);
-    let example = read_string(&buffer, 0xd40, 0x1540);
+    let scel_length = u16::from_le_bytes([buffer[0x0124], buffer[0x0125]]);
+    let name = read_string(&buffer, 0x0130, 0x0338);
+    let category = read_string(&buffer, 0x0338, 0x0540);
+    let example = read_string(&buffer, 0x0d40, 0x1540);
     let filename = fp
         .as_path()
         .file_stem()
@@ -136,10 +161,7 @@ fn parse_scel_file(fp: &PathBuf) -> Scel {
 }
 
 fn main() -> std::io::Result<()> {
-    let path = env::args().nth(1).expect("no path given");
-    let args = Cli {
-        path: PathBuf::from(path),
-    };
+    let args = parse_args();
     let scel = parse_scel_file(&args.path);
     let pre = format!(
         "# Rime Sogou
