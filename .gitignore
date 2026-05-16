@@ -1,4 +1,5 @@
 /target
-.scel2rime-cache/
+/dist
+/thoughts
 *.scel
 *.yaml

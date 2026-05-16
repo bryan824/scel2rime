@@ -202,12 +202,10 @@ pub fn sogou_download_url(source: &ScelSource) -> String {
     )
 }
 
-pub fn downloaded_scel_path(cache_dir: impl AsRef<Path>, source: &ScelSource) -> PathBuf {
-    cache_dir.as_ref().join(format!("sogou-{}.scel", source.id))
-}
-
-pub fn output_path_for_source(source: &ScelSource) -> PathBuf {
-    PathBuf::from(format!("luna_pinyin.sogou.{}.dict.yaml", source.id))
+pub fn output_path_for_source(output_dir: impl AsRef<Path>, source: &ScelSource) -> PathBuf {
+    output_dir
+        .as_ref()
+        .join(format!("luna_pinyin.sogou.{}.dict.yaml", source.id))
 }
 
 pub fn parse_scel_path(path: impl AsRef<Path>) -> Result<Scel> {
@@ -627,8 +625,8 @@ mod tests {
             "https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=%E7%BD%91%E7%BB%9C%E6%B5%81%E8%A1%8C%E6%96%B0%E8%AF%8D&f=detail"
         );
         assert_eq!(
-            output_path_for_source(&source),
-            PathBuf::from("luna_pinyin.sogou.4.dict.yaml")
+            output_path_for_source("dist", &source),
+            PathBuf::from("dist/luna_pinyin.sogou.4.dict.yaml")
         );
     }
 

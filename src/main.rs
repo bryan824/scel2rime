@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode};
 
-const CACHE_DIR: &str = ".scel2rime-cache";
+const OUTPUT_DIR: &str = "dist";
 
 #[derive(Debug)]
 enum CliCommand {
@@ -19,11 +19,7 @@ enum AppError {
         message: String,
     },
     Convert(scel2rime::Error),
-    CreateCacheDir {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-    ReadDownload {
+    CreateOutputDir {
         path: PathBuf,
         source: std::io::Error,
     },
@@ -45,11 +41,8 @@ impl fmt::Display for AppError {
         match self {
             Self::Usage { message } => write!(f, "{message}"),
             Self::Convert(source) => write!(f, "{source}"),
-            Self::CreateCacheDir { path, source } => {
+            Self::CreateOutputDir { path, source } => {
                 write!(f, "failed to create {}: {source}", path.display())
-            }
-            Self::ReadDownload { path, source } => {
-                write!(f, "failed to read downloaded {}: {source}", path.display())
             }
             Self::DownloadSpawn { source } => write!(f, "failed to run curl: {source}"),
             Self::DownloadFailed { source, stderr } => write!(
@@ -70,8 +63,7 @@ impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Convert(source) => Some(source),
-            Self::CreateCacheDir { source, .. }
-            | Self::ReadDownload { source, .. }
+            Self::CreateOutputDir { source, .. }
             | Self::DownloadSpawn { source }
             | Self::WriteOutput { source, .. } => Some(source),
             Self::Usage { .. } | Self::DownloadFailed { .. } => None,
@@ -120,9 +112,9 @@ fn convert_file(input: &Path) -> Result<String, AppError> {
 
 fn convert_config(config_path: &Path) -> Result<String, AppError> {
     let config = scel2rime::parse_config_path(config_path)?;
-    let cache_dir = PathBuf::from(CACHE_DIR);
-    fs::create_dir_all(&cache_dir).map_err(|source| AppError::CreateCacheDir {
-        path: cache_dir.clone(),
+    let output_dir = PathBuf::from(OUTPUT_DIR);
+    fs::create_dir_all(&output_dir).map_err(|source| AppError::CreateOutputDir {
+        path: output_dir.clone(),
         source,
     })?;
 
@@ -130,15 +122,9 @@ fn convert_config(config_path: &Path) -> Result<String, AppError> {
     let mut converted = 0usize;
 
     for source in &config.dictionaries {
-        let download_path = scel2rime::downloaded_scel_path(&cache_dir, source);
-        download_scel(source, &download_path)?;
-
-        let buffer = fs::read(&download_path).map_err(|source| AppError::ReadDownload {
-            path: download_path.clone(),
-            source,
-        })?;
+        let buffer = download_scel(source)?;
         let scel = scel2rime::parse_scel_bytes(&buffer, source.id.to_string())?;
-        let output = scel2rime::output_path_for_source(source);
+        let output = scel2rime::output_path_for_source(&output_dir, source);
         write_rime_dict(&output, &scel)?;
 
         println!(
@@ -164,24 +150,24 @@ fn write_rime_dict(output: &Path, scel: &scel2rime::Scel) -> Result<(), AppError
     })
 }
 
-fn download_scel(source: &scel2rime::ScelSource, output: &Path) -> Result<(), AppError> {
+fn download_scel(source: &scel2rime::ScelSource) -> Result<Vec<u8>, AppError> {
     let url = scel2rime::sogou_download_url(source);
     let command_output = ProcessCommand::new("curl")
         .arg("-L")
         .arg("--fail")
+        .arg("--silent")
+        .arg("--show-error")
         .arg("--retry")
         .arg("3")
         .arg("--retry-all-errors")
         .arg("--connect-timeout")
         .arg("20")
-        .arg("--output")
-        .arg(output)
         .arg(url)
         .output()
         .map_err(|source| AppError::DownloadSpawn { source })?;
 
     if command_output.status.success() {
-        Ok(())
+        Ok(command_output.stdout)
     } else {
         Err(AppError::DownloadFailed {
             source: source.clone(),

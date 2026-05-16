@@ -46,10 +46,10 @@ or:
 scel2rime --config scel2rime.conf
 ```
 
-The app downloads SCEL files with `curl`, caches them under `.scel2rime-cache/`, then writes one RIME dictionary per ID, such as:
+The app downloads SCEL bytes with `curl`, converts them in memory, and writes one RIME dictionary per ID under `dist/`, such as:
 
 ```text
-luna_pinyin.sogou.4.dict.yaml
+dist/luna_pinyin.sogou.4.dict.yaml
 ```
 
 Generated rows follow RIME dictionary shape used by projects like [`rime-frost`](https://github.com/gaboolic/rime-frost):

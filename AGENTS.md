@@ -55,11 +55,11 @@
 ## Config preference
 - Batch config is ID-focused and std-only: one Sogou dictionary per line as `<id> <name>`.
 - Keep `scel2rime.conf` human-editable; comments start with `#`.
-- Avoid adding HTTP/config crates for now; config mode uses `curl` to download SCEL files.
+- Avoid adding HTTP/config crates for now; config mode uses `curl` to download SCEL bytes into memory.
 
 ## Output preference
 - Write `luna_pinyin.sogou.<stem>.dict.yaml` for local files.
-- Write `luna_pinyin.sogou.<id>.dict.yaml` for config-downloaded dictionaries.
+- Write `dist/luna_pinyin.sogou.<id>.dict.yaml` for config-downloaded dictionaries.
 - Header should be valid RIME dictionary YAML:
   - comments
   - `---`
