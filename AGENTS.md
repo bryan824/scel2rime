@@ -52,8 +52,14 @@
   - pinyin indices (`u16` each)
   - repeated words: word byte length (`u16`), UTF-16LE word, extension byte length (`u16`), frequency (`u16`), extension tail.
 
+## Config preference
+- Batch config is ID-focused and std-only: one Sogou dictionary per line as `<id> <name>`.
+- Keep `scel2rime.conf` human-editable; comments start with `#`.
+- Avoid adding HTTP/config crates for now; config mode uses `curl` to download SCEL files.
+
 ## Output preference
-- Write `luna_pinyin.sogou.<stem>.dict.yaml` by default for compatibility with existing README.
+- Write `luna_pinyin.sogou.<stem>.dict.yaml` for local files.
+- Write `luna_pinyin.sogou.<id>.dict.yaml` for config-downloaded dictionaries.
 - Header should be valid RIME dictionary YAML:
   - comments
   - `---`

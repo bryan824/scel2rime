@@ -1,6 +1,9 @@
 run file="popular_now.scel":
     cargo run -- {{file}}
 
+batch config="scel2rime.conf":
+    cargo run -- --config {{config}}
+
 check:
     cargo fmt -- --check
     cargo clippy --all-targets -- -D warnings

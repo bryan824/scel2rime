@@ -2,7 +2,7 @@
 
 `scel2rime` converts Sogou `.scel` cell dictionaries into RIME `.dict.yaml` files.
 
-Example source dictionary: [Sogou 网络流行新词](https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=%E7%BD%91%E7%BB%9C%E6%B5%81%E8%A1%8C%E6%96%B0%E8%AF%8D&f=detail).
+## Convert one local SCEL file
 
 ```shell
 cargo run -- popular_now.scel
@@ -18,6 +18,38 @@ This produces:
 
 ```text
 luna_pinyin.sogou.popular_now.dict.yaml
+```
+
+## Download and convert dictionaries from config
+
+Config is ID-focused. Each non-comment line is:
+
+```text
+<id> <name>
+```
+
+Example:
+
+```text
+4 网络流行新词
+```
+
+Run:
+
+```shell
+cargo run -- --config scel2rime.conf
+```
+
+or:
+
+```shell
+scel2rime --config scel2rime.conf
+```
+
+The app downloads SCEL files with `curl`, caches them under `.scel2rime-cache/`, then writes one RIME dictionary per ID, such as:
+
+```text
+luna_pinyin.sogou.4.dict.yaml
 ```
 
 Generated rows follow RIME dictionary shape used by projects like [`rime-frost`](https://github.com/gaboolic/rime-frost):

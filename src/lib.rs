@@ -26,6 +26,17 @@ pub struct Scel {
     pub file_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScelConfig {
+    pub dictionaries: Vec<ScelSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScelSource {
+    pub id: u32,
+    pub name: String,
+}
+
 #[derive(Debug)]
 pub enum Error {
     ReadFile {
@@ -63,6 +74,12 @@ pub enum Error {
         offset: usize,
         len: usize,
     },
+    InvalidConfigLine {
+        line_number: usize,
+        line: String,
+        message: String,
+    },
+    EmptyConfig,
     SystemTime(std::time::SystemTimeError),
 }
 
@@ -117,6 +134,15 @@ impl fmt::Display for Error {
                 f,
                 "invalid word extension length at offset 0x{offset:x}: {len} bytes"
             ),
+            Self::InvalidConfigLine {
+                line_number,
+                line,
+                message,
+            } => write!(
+                f,
+                "invalid config line {line_number}: {message}; line: {line}"
+            ),
+            Self::EmptyConfig => write!(f, "config has no Sogou dictionaries"),
             Self::SystemTime(source) => write!(f, "failed to calculate unix timestamp: {source}"),
         }
     }
@@ -133,6 +159,56 @@ impl std::error::Error for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub fn parse_config_path(path: impl AsRef<Path>) -> Result<ScelConfig> {
+    let path = path.as_ref();
+    let contents = fs::read_to_string(path).map_err(|source| Error::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    parse_config_str(&contents)
+}
+
+pub fn parse_config_str(contents: &str) -> Result<ScelConfig> {
+    let mut dictionaries = Vec::new();
+
+    for (index, raw_line) in contents.lines().enumerate() {
+        let line_number = index + 1;
+        let line = raw_line
+            .split_once('#')
+            .map_or(raw_line, |(content, _comment)| content)
+            .trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        let (id, name) = parse_config_entry(line_number, line)?;
+        dictionaries.push(ScelSource { id, name });
+    }
+
+    if dictionaries.is_empty() {
+        return Err(Error::EmptyConfig);
+    }
+
+    Ok(ScelConfig { dictionaries })
+}
+
+pub fn sogou_download_url(source: &ScelSource) -> String {
+    format!(
+        "https://pinyin.sogou.com/d/dict/download_cell.php?id={}&name={}&f=detail",
+        source.id,
+        percent_encode(&source.name)
+    )
+}
+
+pub fn downloaded_scel_path(cache_dir: impl AsRef<Path>, source: &ScelSource) -> PathBuf {
+    cache_dir.as_ref().join(format!("sogou-{}.scel", source.id))
+}
+
+pub fn output_path_for_source(source: &ScelSource) -> PathBuf {
+    PathBuf::from(format!("luna_pinyin.sogou.{}.dict.yaml", source.id))
+}
 
 pub fn parse_scel_path(path: impl AsRef<Path>) -> Result<Scel> {
     let path = path.as_ref();
@@ -283,6 +359,55 @@ use_preset_vocabulary: true\n\
     } else {
         format!("{header}\n{entries}\n")
     }
+}
+
+fn parse_config_entry(line_number: usize, line: &str) -> Result<(u32, String)> {
+    let (id_part, name_part) = if let Some((id, name)) = line.split_once('=') {
+        (id.trim(), name.trim())
+    } else {
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let id = parts.next().unwrap_or_default().trim();
+        let name = parts.next().unwrap_or_default().trim();
+        (id, name)
+    };
+
+    if id_part.is_empty() {
+        return Err(Error::InvalidConfigLine {
+            line_number,
+            line: line.to_string(),
+            message: "missing dictionary id".to_string(),
+        });
+    }
+    if name_part.is_empty() {
+        return Err(Error::InvalidConfigLine {
+            line_number,
+            line: line.to_string(),
+            message: "missing dictionary name".to_string(),
+        });
+    }
+
+    let id = id_part
+        .parse::<u32>()
+        .map_err(|source| Error::InvalidConfigLine {
+            line_number,
+            line: line.to_string(),
+            message: format!("invalid dictionary id: {source}"),
+        })?;
+
+    Ok((id, name_part.to_string()))
+}
+
+fn percent_encode(value: &str) -> String {
+    value
+        .as_bytes()
+        .iter()
+        .flat_map(|byte| match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![*byte as char]
+            }
+            byte => format!("%{byte:02X}").chars().collect::<Vec<_>>(),
+        })
+        .collect()
 }
 
 fn validate_header(buffer: &[u8]) -> Result<()> {
@@ -464,6 +589,47 @@ mod tests {
         assert!(rendered.contains("name: luna_pinyin.sogou.sample"));
         assert!(rendered.contains("version: \"42\""));
         assert!(rendered.contains("你好\tni hao\t123"));
+    }
+
+    #[test]
+    fn parses_id_focused_config() {
+        let config = parse_config_str(
+            "# Sogou dictionaries\n\
+             4 网络流行新词\n\
+             5 = 常用诗词\n",
+        )
+        .expect("config should parse");
+
+        assert_eq!(
+            config.dictionaries,
+            vec![
+                ScelSource {
+                    id: 4,
+                    name: "网络流行新词".to_string(),
+                },
+                ScelSource {
+                    id: 5,
+                    name: "常用诗词".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_sogou_download_url() {
+        let source = ScelSource {
+            id: 4,
+            name: "网络流行新词".to_string(),
+        };
+
+        assert_eq!(
+            sogou_download_url(&source),
+            "https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=%E7%BD%91%E7%BB%9C%E6%B5%81%E8%A1%8C%E6%96%B0%E8%AF%8D&f=detail"
+        );
+        assert_eq!(
+            output_path_for_source(&source),
+            PathBuf::from("luna_pinyin.sogou.4.dict.yaml")
+        );
     }
 
     fn sample_scel(signature: &[u8; 3]) -> Vec<u8> {
