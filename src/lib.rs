@@ -194,11 +194,18 @@ pub fn parse_config_str(contents: &str) -> Result<ScelConfig> {
     Ok(ScelConfig { dictionaries })
 }
 
+pub fn sogou_detail_url(id: u32) -> String {
+    format!("https://pinyin.sogou.com/dict/detail/index/{id}")
+}
+
 pub fn sogou_download_url(source: &ScelSource) -> String {
+    sogou_download_url_with_name(source.id, &source.name)
+}
+
+pub fn sogou_download_url_with_name(id: u32, name: &str) -> String {
     format!(
-        "https://pinyin.sogou.com/d/dict/download_cell.php?id={}&name={}&f=detail",
-        source.id,
-        percent_encode(&source.name)
+        "https://pinyin.sogou.com/d/dict/download_cell.php?id={id}&name={}&f=detail",
+        percent_encode(name)
     )
 }
 
@@ -376,14 +383,6 @@ fn parse_config_entry(line_number: usize, line: &str) -> Result<(u32, String)> {
             message: "missing dictionary id".to_string(),
         });
     }
-    if name_part.is_empty() {
-        return Err(Error::InvalidConfigLine {
-            line_number,
-            line: line.to_string(),
-            message: "missing dictionary name".to_string(),
-        });
-    }
-
     let id = id_part
         .parse::<u32>()
         .map_err(|source| Error::InvalidConfigLine {
@@ -594,7 +593,8 @@ mod tests {
         let config = parse_config_str(
             "# Sogou dictionaries\n\
              4 网络流行新词\n\
-             5 = 常用诗词\n",
+             5 = 常用诗词\n\
+             77212\n",
         )
         .expect("config should parse");
 
@@ -609,6 +609,10 @@ mod tests {
                     id: 5,
                     name: "常用诗词".to_string(),
                 },
+                ScelSource {
+                    id: 77212,
+                    name: "".to_string(),
+                },
             ]
         );
     }
@@ -620,6 +624,10 @@ mod tests {
             name: "网络流行新词".to_string(),
         };
 
+        assert_eq!(
+            sogou_detail_url(4),
+            "https://pinyin.sogou.com/dict/detail/index/4"
+        );
         assert_eq!(
             sogou_download_url(&source),
             "https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=%E7%BD%91%E7%BB%9C%E6%B5%81%E8%A1%8C%E6%96%B0%E8%AF%8D&f=detail"

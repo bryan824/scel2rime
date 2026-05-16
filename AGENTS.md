@@ -53,9 +53,9 @@
   - repeated words: word byte length (`u16`), UTF-16LE word, extension byte length (`u16`), frequency (`u16`), extension tail.
 
 ## Config preference
-- Batch config is ID-focused and std-only: one Sogou dictionary per line as `<id> <name>`.
+- Batch config is ID-focused and std-only: one Sogou dictionary per line as `<id>` or `<id> <name>`.
 - Keep `scel2rime.conf` human-editable; comments start with `#`.
-- Avoid adding HTTP/config crates for now; config mode uses `curl` to download SCEL bytes into memory.
+- Config mode uses native Rust HTTP (`ureq`) to resolve ID-only detail pages and download SCEL bytes into memory.
 
 ## Output preference
 - Write `luna_pinyin.sogou.<stem>.dict.yaml` for local files.

@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command as ProcessCommand, ExitCode};
+use std::process::ExitCode;
 
 const OUTPUT_DIR: &str = "dist";
 
@@ -23,12 +23,16 @@ enum AppError {
         path: PathBuf,
         source: std::io::Error,
     },
-    DownloadSpawn {
-        source: std::io::Error,
+    HttpRequest {
+        url: String,
+        source: Box<ureq::Error>,
     },
-    DownloadFailed {
-        source: scel2rime::ScelSource,
-        stderr: String,
+    ReadResponse {
+        url: String,
+        source: Box<ureq::Error>,
+    },
+    ResolveDownloadUrl {
+        id: u32,
     },
     WriteOutput {
         path: PathBuf,
@@ -44,14 +48,16 @@ impl fmt::Display for AppError {
             Self::CreateOutputDir { path, source } => {
                 write!(f, "failed to create {}: {source}", path.display())
             }
-            Self::DownloadSpawn { source } => write!(f, "failed to run curl: {source}"),
-            Self::DownloadFailed { source, stderr } => write!(
-                f,
-                "failed to download Sogou dictionary {} ({}): {}",
-                source.id,
-                source.name,
-                stderr.trim()
-            ),
+            Self::HttpRequest { url, source } => write!(f, "failed HTTP request {url}: {source}"),
+            Self::ReadResponse { url, source } => {
+                write!(f, "failed to read HTTP response {url}: {source}")
+            }
+            Self::ResolveDownloadUrl { id } => {
+                write!(
+                    f,
+                    "failed to resolve Sogou download URL for dictionary id {id}"
+                )
+            }
             Self::WriteOutput { path, source } => {
                 write!(f, "failed to write {}: {source}", path.display())
             }
@@ -63,10 +69,11 @@ impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Convert(source) => Some(source),
-            Self::CreateOutputDir { source, .. }
-            | Self::DownloadSpawn { source }
-            | Self::WriteOutput { source, .. } => Some(source),
-            Self::Usage { .. } | Self::DownloadFailed { .. } => None,
+            Self::CreateOutputDir { source, .. } | Self::WriteOutput { source, .. } => Some(source),
+            Self::HttpRequest { source, .. } | Self::ReadResponse { source, .. } => {
+                Some(source.as_ref())
+            }
+            Self::Usage { .. } | Self::ResolveDownloadUrl { .. } => None,
         }
     }
 }
@@ -130,7 +137,7 @@ fn convert_config(config_path: &Path) -> Result<String, AppError> {
         println!(
             "converted Sogou {} ({}) -> {} ({} words)",
             source.id,
-            source.name,
+            source_label(source),
             output.display(),
             scel.word_list.len()
         );
@@ -151,28 +158,56 @@ fn write_rime_dict(output: &Path, scel: &scel2rime::Scel) -> Result<(), AppError
 }
 
 fn download_scel(source: &scel2rime::ScelSource) -> Result<Vec<u8>, AppError> {
-    let url = scel2rime::sogou_download_url(source);
-    let command_output = ProcessCommand::new("curl")
-        .arg("-L")
-        .arg("--fail")
-        .arg("--silent")
-        .arg("--show-error")
-        .arg("--retry")
-        .arg("3")
-        .arg("--retry-all-errors")
-        .arg("--connect-timeout")
-        .arg("20")
-        .arg(url)
-        .output()
-        .map_err(|source| AppError::DownloadSpawn { source })?;
+    let (url, _name) = resolve_download(source)?;
+    read_url_bytes(&url)
+}
 
-    if command_output.status.success() {
-        Ok(command_output.stdout)
-    } else {
-        Err(AppError::DownloadFailed {
-            source: source.clone(),
-            stderr: String::from_utf8_lossy(&command_output.stderr).to_string(),
+fn resolve_download(source: &scel2rime::ScelSource) -> Result<(String, String), AppError> {
+    if !source.name.is_empty() {
+        return Ok((scel2rime::sogou_download_url(source), source.name.clone()));
+    }
+
+    let detail_url = scel2rime::sogou_detail_url(source.id);
+    let detail = read_url_bytes(&detail_url)?;
+    let html = String::from_utf8_lossy(&detail);
+    let name = resolve_name_from_detail_html(source.id, &html)
+        .ok_or(AppError::ResolveDownloadUrl { id: source.id })?;
+    Ok((
+        scel2rime::sogou_download_url_with_name(source.id, &name),
+        name,
+    ))
+}
+
+fn read_url_bytes(url: &str) -> Result<Vec<u8>, AppError> {
+    let mut response = ureq::get(url)
+        .call()
+        .map_err(|source| AppError::HttpRequest {
+            url: url.to_string(),
+            source: Box::new(source),
+        })?;
+
+    response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|source| AppError::ReadResponse {
+            url: url.to_string(),
+            source: Box::new(source),
         })
+}
+
+fn resolve_name_from_detail_html(id: u32, html: &str) -> Option<String> {
+    let marker = format!("download_cell.php?id={id}&name=");
+    let start = html.find(&marker)? + marker.len();
+    let rest = &html[start..];
+    let end = rest.find("&f=detail")?;
+    Some(rest[..end].to_string())
+}
+
+fn source_label(source: &scel2rime::ScelSource) -> &str {
+    if source.name.is_empty() {
+        "id-only config"
+    } else {
+        &source.name
     }
 }
 
